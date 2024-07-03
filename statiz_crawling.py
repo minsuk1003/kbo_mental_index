@@ -2,6 +2,8 @@ import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 from tqdm import tqdm
+from sqlalchemy import create_engine
+import pymysql
 
 # 연도 목록과 팀 사전 정의
 year_list = [2018, 2019, 2020, 2021, 2022, 2023, 2024]
@@ -41,6 +43,7 @@ def fetch_seasonal_batter_data(year, team):
     url_list = [batter.find('a')['href'] for i, batter in enumerate(batter_datas) if i%33 == 1]
     
     df['url'] = url_list
+    df['player_id'] = df['url'].str[-5:]
     return df
 
 # 특정 연도와 팀의 데이터를 가져오는 함수
@@ -61,6 +64,7 @@ def fetch_seasonal_pitcher_data(year, team):
     url_list = [pitcher.find('a')['href'] for i, pitcher in enumerate(pitcher_datas) if i%37 == 1]
     
     df['url'] = url_list
+    df['player_id'] = df['url'].str[-5:]
     return df
 
 # 데이터를 수집하고 데이터프레임으로 만드는 함수
@@ -104,12 +108,12 @@ def fetch_batter_game_data(seasonal_df):
         response = requests.get(url)
         soup = BeautifulSoup(response.text, 'html.parser')
     
-        columns = ['Year', 'Team', 'Name', 'Date', 'Opponent', 'Result', 'Order', 'Pos', 'GS', 'ePA', 'AB', 'R', 'H', '2B', '3B', 'HR', 'TB', 'RBI', 'SB', 'CS', 'BB', 'HP', 'IB', 'SO', 'GDP', 'SH', 'SF', 'accumulated_AVG', 'accumulated_OBP', 'accumulated_SLG', 'accumulated_OPS', 'NP', 'avLI', 'RE24', 'WPA']
+        columns = ['Year', 'Team', 'player_id', 'Name', 'Date', 'Opponent', 'Result', 'Order', 'Pos', 'GS', 'ePA', 'AB', 'R', 'H', '2B', '3B', 'HR', 'TB', 'RBI', 'SB', 'CS', 'BB', 'HP', 'IB', 'SO', 'GDP', 'SH', 'SF', 'accumulated_AVG', 'accumulated_OBP', 'accumulated_SLG', 'accumulated_OPS', 'NP', 'avLI', 'RE24', 'WPA']
 
         batter_datas = soup.find_all('td')
-        chunked_batter_data = chunk_list([batter.text for batter in batter_datas], len(columns)-3)
+        chunked_batter_data = chunk_list([batter.text for batter in batter_datas], len(columns)-4)
         
-        new_elements = [seasonal_df.loc[i,'Year'], seasonal_df.loc[i, 'Team'], seasonal_df.loc[i, 'Name']]
+        new_elements = [seasonal_df.loc[i,'Year'], seasonal_df.loc[i, 'Team'], seasonal_df.loc[i, 'url'][-5:], seasonal_df.loc[i, 'Name']]
         batter_data = add_elements_to_sublist(chunked_batter_data, new_elements)
         
         new_df = pd.DataFrame(batter_data, columns=columns)
@@ -127,12 +131,12 @@ def fetch_pitcher_game_data(seasonal_df):
         response = requests.get(url)
         soup = BeautifulSoup(response.text, 'html.parser')
     
-        columns = ['Year', 'Team', 'Name', 'Date', 'Opponent', 'Result', 'GS', 'IP', 'R', 'ER', 'rRA', 'TBF', 'AB', 'H', '2B', '3B', 'HR', 'BB', 'IB', 'HP', 'SO', 'NP', 'WHIP', 'AVG', 'OBP', 'OPS', 'ERA', 'avLI', 'RE24', 'WPA', 'GSC', 'DEC', 'Int']
+        columns = ['Year', 'Team', 'player_id', 'Name', 'Date', 'Opponent', 'Result', 'GS', 'IP', 'R', 'ER', 'rRA', 'TBF', 'AB', 'H', '2B', '3B', 'HR', 'BB', 'IB', 'HP', 'SO', 'NP', 'WHIP', 'AVG', 'OBP', 'OPS', 'ERA', 'avLI', 'RE24', 'WPA', 'GSC', 'DEC', 'Int']
 
         pitcher_datas = soup.find_all('td')
-        chunked_pitcher_data = chunk_list([pitcher.text for pitcher in pitcher_datas], len(columns)-3)
+        chunked_pitcher_data = chunk_list([pitcher.text for pitcher in pitcher_datas], len(columns)-4)
         
-        new_elements = [seasonal_df.loc[i,'Year'], seasonal_df.loc[i, 'Team'], seasonal_df.loc[i, 'Name']]
+        new_elements = [seasonal_df.loc[i,'Year'], seasonal_df.loc[i, 'Team'], seasonal_df.loc[i, 'url'][-5:], seasonal_df.loc[i, 'Name']]
         pitcher_data = add_elements_to_sublist(chunked_pitcher_data, new_elements)
         
         new_df = pd.DataFrame(pitcher_data, columns=columns)
@@ -143,16 +147,16 @@ def fetch_pitcher_game_data(seasonal_df):
     return df
 
 
-def fetch_player_salary(url, team, name):
+def fetch_player_salary(url, name):
     response = requests.get(url)
     soup = BeautifulSoup(response.text, 'html.parser')
     
-    columns=['Team', 'Name', 'Year', '연봉(만원)', 'WAR']
+    columns=['player_id', 'Name', 'Year', '연봉(만원)', 'WAR']
     
     data = soup.find_all('td')
     chunked_salary_data = chunk_list([salary.text for salary in data], 3)
     
-    new_elements = [team, name]
+    new_elements = [url[-14:-9], name]
     salary_data = add_elements_to_sublist(chunked_salary_data, new_elements)
     
     return pd.DataFrame(salary_data, columns=columns)
@@ -161,7 +165,7 @@ def collect_player_salary(seasonal_df):
     df = None
     for i in tqdm(range(len(seasonal_df))):
         url = 'https://statiz.sporki.com/' + seasonal_df.loc[i, "url"] + '&m=income'
-        new_df = fetch_player_salary(url, seasonal_df.loc[i, 'Team'], seasonal_df.loc[i, 'Name'])
+        new_df = fetch_player_salary(url, seasonal_df.loc[i, 'Name'])
         if df is None:
             df = new_df
         else:
@@ -175,24 +179,34 @@ game_batter_df = fetch_batter_game_data(seasonal_batter_df)
 game_pitcher_df = fetch_pitcher_game_data(seasonal_pitcher_df)
 salary_df = collect_player_salary(pd.concat([seasonal_batter_df[['Name', 'Team', 'url']], seasonal_pitcher_df[['Name', 'Team', 'url']]]).drop_duplicates(subset='url', keep='first', ignore_index=True))
 
-# 데이터프레임 출력
-print(seasonal_batter_df.iloc[:, :10])
-print(seasonal_batter_df.iloc[:, 10:20])
-print(seasonal_batter_df.iloc[:, 20:30])
-print(seasonal_batter_df.iloc[:, 30:])
+seasonal_batter_df.to_csv('seasonal_batter.csv', index=False)
+seasonal_pitcher_df.to_csv('seasonal_pitcher.csv', index=False)
+game_batter_df.to_csv('game_batter.csv', index=False)
+game_pitcher_df.to_csv('game_pitcher.csv', index=False)
+salary_df.to_csv('player_salary.csv', index=False)
 
-print(seasonal_pitcher_df.iloc[:, :10])
-print(seasonal_pitcher_df.iloc[:, 10:20])
-print(seasonal_pitcher_df.iloc[:, 20:30])
-print(seasonal_pitcher_df.iloc[:, 30:])
+# CSV 파일들을 읽어서 데이터프레임으로 변환
+seasonal_batter_df = pd.read_csv('seasonal_batter.csv')
+seasonal_pitcher_df = pd.read_csv('seasonal_pitcher.csv')
+game_batter_df = pd.read_csv('game_batter.csv')
+game_pitcher_df = pd.read_csv('game_pitcher.csv')
+salary_df = pd.read_csv('player_salary.csv')
 
-print(game_batter_df.iloc[:, :10])
-print(game_batter_df.iloc[:, 10:20])
-print(game_batter_df.iloc[:, 20:30])
-print(game_batter_df.iloc[:, 30:])
+# MySQL 데이터베이스 연결 문자열 (사용자의 MySQL 설정에 맞게 수정)
+db_connection_str = 'mysql+pymysql://admin:incheon29!@db-baseball.c3qkocogec5f.us-east-2.rds.amazonaws.com:3306/baseball'
 
-print(game_pitcher_df.iloc[:, :10])
-print(game_pitcher_df.iloc[:, 10:20])
-print(game_pitcher_df.iloc[:, 20:30])
-print(game_pitcher_df.iloc[:, 30:])
-print(salary_df)
+# SQLAlchemy 엔진 생성
+engine = create_engine(db_connection_str)
+
+# 데이터프레임을 MySQL 테이블에 저장하는 함수
+def save_to_mysql(df, table_name, engine):
+    df.to_sql(name=table_name, con=engine, if_exists='replace', index=False)
+
+# 데이터 저장 실행
+save_to_mysql(seasonal_batter_df, 'seasonal_batter', engine)
+save_to_mysql(seasonal_pitcher_df, 'seasonal_pitcher', engine)
+save_to_mysql(game_batter_df, 'game_batter', engine)
+save_to_mysql(game_pitcher_df, 'game_pitcher', engine)
+save_to_mysql(salary_df, 'salary', engine)
+
+print("Data has been saved to MySQL database.")
