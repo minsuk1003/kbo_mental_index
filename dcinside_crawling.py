@@ -2,7 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 from tqdm import tqdm
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 import pymysql
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -52,7 +52,7 @@ def fetch_dcinside_data(post_id):
     # Insert data into the database
     with engine.connect() as connection:
         connection.execute(
-            """
+            text("""
             INSERT INTO your_table (id, team, datetime, title, content, views, likes, dislikes, comment_counts)
             VALUES (:id, :team, :datetime, :title, :content, :views, :likes, :dislikes, :comment_counts)
             ON DUPLICATE KEY UPDATE
@@ -64,7 +64,7 @@ def fetch_dcinside_data(post_id):
             likes=VALUES(likes),
             dislikes=VALUES(dislikes),
             comment_counts=VALUES(comment_counts)
-            """,
+            """),
             {
                 'id': id,
                 'team': team,
