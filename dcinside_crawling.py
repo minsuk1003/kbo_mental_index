@@ -6,6 +6,7 @@ from sqlalchemy import create_engine
 import pymysql
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 
 # 데이터베이스 연결 설정
 db_config = {
@@ -79,20 +80,48 @@ def fetch_dcinside_data(post_id):
 
     return id
 
-def collect_dcinside_data(start_id, num_posts):
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        future_to_post_id = {executor.submit(fetch_dcinside_data, post_id): post_id for post_id in range(start_id, start_id - num_posts, -1)}
+def collect_dcinside_data(start_id, num_posts, batch_size, sleep_time):
+    total_collected = 0
+    total_time = 0
+    batch_count = 0
+    
+    while total_collected < num_posts:
+        start_time = time.time()
         
-        for future in as_completed(future_to_post_id):
-            post_id = future_to_post_id[future]
-            try:
-                data_id = future.result()
-                print(f"Successfully fetched and inserted data for post id {data_id}")
-            except Exception as e:
-                print(f"Error fetching data for post id {post_id}: {e}")
-
-# 예시: 시작 ID가 10836209이고 10개의 포스트를 수집하는 경우
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_post_id = {executor.submit(fetch_dcinside_data, post_id): post_id for post_id in range(start_id, start_id - batch_size, -1)}
+            
+            for future in as_completed(future_to_post_id):
+                post_id = future_to_post_id[future]
+                try:
+                    data_id = future.result()
+                    print(f"Successfully fetched and inserted data for post id {data_id}")
+                except Exception as e:
+                    print(f"Error fetching data for post id {post_id}: {e}")
+        
+        end_time = time.time()
+        batch_time = end_time - start_time
+        total_time += batch_time
+        batch_count += 1
+        total_collected += batch_size
+        start_id -= batch_size
+        
+        print(f"Batch {batch_count} completed in {batch_time:.2f} seconds. Total time so far: {total_time:.2f} seconds.")
+        print(f"Sleeping for {sleep_time} seconds...")
+        time.sleep(sleep_time)
+    
+    return total_time, batch_count
+        
+        
+# 예시: 시작 ID가 10836209이고 1000000개의 포스트를 수집하는 경우, 한 번에 50000개씩 수집하고 100초간 중단
 start_id = 10836209
-num_posts = 1000000
+num_posts = 3500000
+batch_size = 50000
+sleep_time = 100
 
-collect_dcinside_data(start_id, num_posts)
+total_time, batch_count = collect_dcinside_data(start_id, num_posts, batch_size, sleep_time)
+
+# 총 실행 시간 추정
+average_batch_time = total_time / batch_count
+estimated_total_time = total_time + (batch_count * sleep_time)
+print(f"Estimated total time for {batch_count} batches: {estimated_total_time / 3600:.2f} hours")
